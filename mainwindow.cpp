@@ -342,6 +342,7 @@ void MainWindow::updateChart(std::shared_ptr<FileItem> root)
     ui->chartView->setChart(chart);
 }
 
+/*
 void MainWindow::updateLargestFiles(std::shared_ptr<FileItem> root)
 {
     if (!root) return;
@@ -393,6 +394,73 @@ void MainWindow::updateLargestFiles(std::shared_ptr<FileItem> root)
     // Восстанавливаем сортировку по размеру (по убыванию)
     ui->filesTable->sortByColumn(1, Qt::DescendingOrder);
 }
+*/
+
+void MainWindow::updateLargestFiles(std::shared_ptr<FileItem> root)
+{
+    if (!root) return;
+
+    // Если файлы уже собраны в m_allFiles (в onScannerFinished), используем их
+    if (m_allFiles.isEmpty()) {
+        collectFiles(root, m_allFiles);
+    }
+
+    // Сортируем по размеру (по убыванию)
+    std::sort(m_allFiles.begin(), m_allFiles.end(),
+              [](const auto &a, const auto &b) {
+                  return a->size() > b->size();
+              });
+
+    // Временно отключаем сортировку для корректного заполнения
+    ui->filesTable->setSortingEnabled(false);
+
+    // Отображаем топ-100
+    int count = qMin(100, m_allFiles.size());
+    ui->filesTable->setRowCount(count);
+
+    for (int i = 0; i < count; ++i) {
+        const auto &file = m_allFiles[i];
+
+        if (!file) {
+            qDebug() << "Пустой файл на позиции" << i;
+            continue;
+        }
+
+        // Колонка 0: Имя файла
+        QTableWidgetItem *nameItem = new QTableWidgetItem(
+            !file->name().isEmpty() ? file->name() : "Неизвестно"
+        );
+        ui->filesTable->setItem(i, 0, nameItem);
+
+        // Колонка 1: Размер (сохраняем сырой размер для сортировки)
+        QTableWidgetItem *sizeItem = new QTableWidgetItem(formatSize(file->size()));
+        sizeItem->setData(Qt::UserRole, file->size()); // Сохраняем числовое значение
+        ui->filesTable->setItem(i, 1, sizeItem);
+
+        // Колонка 2: Путь
+        QTableWidgetItem *pathItem = new QTableWidgetItem(
+            !file->path().isEmpty() ? file->path() : "-"
+        );
+        ui->filesTable->setItem(i, 2, pathItem);
+
+        // Колонка 3: Дата изменения
+        QString dateStr = "-";
+        if (file->modified().isValid()) {
+            dateStr = file->modified().toString("dd.MM.yyyy HH:mm");
+        }
+        QTableWidgetItem *dateItem = new QTableWidgetItem(dateStr);
+        dateItem->setData(Qt::UserRole, file->modified()); // Сохраняем дату для сортировки
+        ui->filesTable->setItem(i, 3, dateItem);
+    }
+
+    ui->filesTable->resizeColumnsToContents();
+    ui->filesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+
+    // Включаем сортировку обратно и сортируем по размеру (по убыванию)
+    ui->filesTable->setSortingEnabled(true);
+    ui->filesTable->sortByColumn(1, Qt::DescendingOrder);
+}
+
 
 void MainWindow::collectFiles(std::shared_ptr<FileItem> item, QList<std::shared_ptr<FileItem>> &files)
 {
