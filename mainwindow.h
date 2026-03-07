@@ -10,7 +10,6 @@ namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class Scanner;
-class SunburstWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -40,14 +39,10 @@ private slots:
     void copyFilePath();
     void copyFileName();
 
-    // Слоты для SunburstWidget
-    void onSunburstItemClicked(std::shared_ptr<FileItem> item);
-    void onSunburstItemDoubleClicked(std::shared_ptr<FileItem> item);
-
 private:
+    void setupUi();
     void setupConnections();
     void updateChart(std::shared_ptr<FileItem> root);
-    void updateSunburst(std::shared_ptr<FileItem> root);
     void updateLargestFiles(std::shared_ptr<FileItem> root);
     void collectFiles(std::shared_ptr<FileItem> item, QList<std::shared_ptr<FileItem>> &files);
     QString formatSize(qint64 bytes) const;
@@ -59,9 +54,8 @@ private:
     Ui::MainWindow *ui;
     Scanner *m_scanner;
     std::shared_ptr<FileItem> m_rootItem;
-    SunburstWidget *m_sunburstWidget;
 
-    QList<std::shared_ptr<FileItem>> m_allFiles;
+    QList<std::shared_ptr<FileItem>> m_allFiles;  // Все файлы для быстрого доступа
     QTimer *m_updateTimer;
     bool m_isScanning;
 };
