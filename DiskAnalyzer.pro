@@ -16,14 +16,16 @@ SOURCES += \
         fileitem.cpp \
         main.cpp \
         mainwindow.cpp \
-        scanner.cpp
+        scanner.cpp \
+        sunburstwidget.cpp
 
 
 
 HEADERS += \
         fileitem.h \
         mainwindow.h \
-        scanner.h
+        scanner.h \
+        sunburstwidget.h
 
 
 
@@ -33,4 +35,7 @@ FORMS += \
 # Для работы с большими файлами
 win32 {
     DEFINES += _LARGEFILE_SOURCE _FILE_OFFSET_BITS=64
+    RC_FILE += file.rc
+    OTHER_FILES += file.rc
+
 }

@@ -1,11 +1,13 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "scanner.h"
+#include "sunburstwidget.h"
 
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QHeaderView>
 #include <QTimer>
+#include <QVBoxLayout>
 #include <QtCharts/QPieSeries>
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
@@ -24,8 +26,27 @@ MainWindow::MainWindow(QWidget *parent)
     , m_scanner(nullptr)
     , m_updateTimer(new QTimer(this))
     , m_isScanning(false)
+    , m_sunburstWidget(nullptr)
 {
     ui->setupUi(this);
+
+    // Создаем SunburstWidget и заменяем им placeholder
+    QWidget *sunburstTab = ui->tabSunburst;
+    QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(sunburstTab->layout());
+
+    if (layout) {
+        // Удаляем placeholder
+        QLayoutItem *item = layout->takeAt(0);
+        if (item && item->widget()) {
+            delete item->widget();
+        }
+        delete item;
+
+        // Создаем и добавляем SunburstWidget
+        m_sunburstWidget = new SunburstWidget(sunburstTab);
+        layout->addWidget(m_sunburstWidget);
+    }
+
     setupConnections();
 
     setWindowTitle("Анализатор дискового пространства");
@@ -80,6 +101,12 @@ void MainWindow::setupConnections()
             openSelectedFile();
         }
     });
+
+    // Подключаем сигналы SunburstWidget
+    if (m_sunburstWidget) {
+        connect(m_sunburstWidget, &SunburstWidget::itemClicked, this, &MainWindow::onSunburstItemClicked);
+        connect(m_sunburstWidget, &SunburstWidget::itemDoubleClicked, this, &MainWindow::onSunburstItemDoubleClicked);
+    }
 }
 
 void MainWindow::onBrowseClicked()
@@ -113,6 +140,9 @@ void MainWindow::onScanClicked()
     // Очистка предыдущих результатов
     ui->filesTable->setRowCount(0);
     m_allFiles.clear();
+    if (m_sunburstWidget) {
+        m_sunburstWidget->clear();
+    }
 
     // Создаем сканер
     if (m_scanner) {
@@ -187,7 +217,6 @@ void MainWindow::onScannerProgress(int percent, const QString &path, int filesCo
 
 void MainWindow::onScannerFileFound(const QString &filePath, qint64 size)
 {
-
     static int fileCounter = 0;
     fileCounter++;
 
@@ -225,6 +254,7 @@ void MainWindow::onScannerFinished(std::shared_ptr<FileItem> root)
 
         // Обновляем визуализации
         updateChart(root);
+        updateSunburst(root);
         updateLargestFiles(root);
     } else {
         ui->statusLabel->setText("Сканирование отменено");
@@ -254,6 +284,7 @@ void MainWindow::updateVisualizations()
     if (m_rootItem && !m_isScanning) {
         // Если сканирование завершено, обновляем все
         updateChart(m_rootItem);
+        updateSunburst(m_rootItem);
         updateLargestFiles(m_rootItem);
     }
 }
@@ -357,6 +388,9 @@ void MainWindow::updateLargestFiles(std::shared_ptr<FileItem> root)
                   return a->size() > b->size();
               });
 
+    // Временно отключаем сортировку для корректного заполнения
+    ui->filesTable->setSortingEnabled(false);
+
     // Отображаем топ-100
     int count = qMin(100, m_allFiles.size());
     ui->filesTable->setRowCount(count);
@@ -364,33 +398,43 @@ void MainWindow::updateLargestFiles(std::shared_ptr<FileItem> root)
     for (int i = 0; i < count; ++i) {
         const auto &file = m_allFiles[i];
 
-        // Проверяем, что у нас есть все необходимые данные
-        if (!file) continue;
+        if (!file) {
+            qDebug() << "Пустой файл на позиции" << i;
+            continue;
+        }
 
-        // Заполняем все 4 колонки данными, даже если некоторые пустые
-        ui->filesTable->setItem(i, 0, new QTableWidgetItem(
+        // Колонка 0: Имя файла
+        QTableWidgetItem *nameItem = new QTableWidgetItem(
             !file->name().isEmpty() ? file->name() : "Неизвестно"
-        ));
+        );
+        ui->filesTable->setItem(i, 0, nameItem);
 
-        ui->filesTable->setItem(i, 1, new QTableWidgetItem(
-            formatSize(file->size())
-        ));
+        // Колонка 1: Размер (сохраняем сырой размер для сортировки)
+        QTableWidgetItem *sizeItem = new QTableWidgetItem(formatSize(file->size()));
+        sizeItem->setData(Qt::UserRole, file->size()); // Сохраняем числовое значение
+        ui->filesTable->setItem(i, 1, sizeItem);
 
-        ui->filesTable->setItem(i, 2, new QTableWidgetItem(
+        // Колонка 2: Путь
+        QTableWidgetItem *pathItem = new QTableWidgetItem(
             !file->path().isEmpty() ? file->path() : "-"
-        ));
+        );
+        ui->filesTable->setItem(i, 2, pathItem);
 
-        ui->filesTable->setItem(i, 3, new QTableWidgetItem(
-            file->modified().isValid() ?
-            file->modified().toString("dd.MM.yyyy HH:mm") :
-            "-"
-        ));
+        // Колонка 3: Дата изменения
+        QString dateStr = "-";
+        if (file->modified().isValid()) {
+            dateStr = file->modified().toString("dd.MM.yyyy HH:mm");
+        }
+        QTableWidgetItem *dateItem = new QTableWidgetItem(dateStr);
+        dateItem->setData(Qt::UserRole, file->modified()); // Сохраняем дату для сортировки
+        ui->filesTable->setItem(i, 3, dateItem);
     }
 
     ui->filesTable->resizeColumnsToContents();
     ui->filesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
 
-    // Восстанавливаем сортировку по размеру (по убыванию)
+    // Включаем сортировку обратно и сортируем по размеру (по убыванию)
+    ui->filesTable->setSortingEnabled(true);
     ui->filesTable->sortByColumn(1, Qt::DescendingOrder);
 }
 
@@ -428,8 +472,6 @@ QString MainWindow::formatSize(qint64 bytes) const
     else
         return QString("%1 Б").arg(bytes);
 }
-
-
 
 void MainWindow::onFilesTableCustomContextMenuRequested(const QPoint &pos)
 {
@@ -667,6 +709,60 @@ void MainWindow::copyFileName()
 
     // Краткое уведомление
     ui->statusLabel->setText(
-        QString("Скопировано %1 имя(ён)").arg(selectedFiles.size())
+        QString("Скопировано %1 им(ён)").arg(selectedFiles.size())
     );
+}
+
+void MainWindow::updateSunburst(std::shared_ptr<FileItem> root)
+{
+    if (!m_sunburstWidget) return;
+
+    if (!root) {
+        m_sunburstWidget->clear();
+        return;
+    }
+
+    qDebug() << "Обновление Sunburst...";
+    m_sunburstWidget->setRootItem(root);
+}
+
+void MainWindow::onSunburstItemClicked(std::shared_ptr<FileItem> item)
+{
+    if (!item) return;
+
+    ui->statusLabel->setText(
+        QString("Выбрано: %1 - %2")
+            .arg(item->name())
+            .arg(formatSize(item->totalSize()))
+    );
+
+    qDebug() << "Sunburst клик:" << item->name();
+}
+
+void MainWindow::onSunburstItemDoubleClicked(std::shared_ptr<FileItem> item)
+{
+    if (!item) return;
+
+    qDebug() << "Sunburst двойной клик:" << item->name();
+
+    // Если это файл - открываем его
+    if (!item->isDirectory()) {
+        if (QFile::exists(item->path())) {
+            QUrl fileUrl = QUrl::fromLocalFile(item->path());
+            if (!QDesktopServices::openUrl(fileUrl)) {
+                QMessageBox::warning(this, "Ошибка",
+                    QString("Не удалось открыть файл:\n%1").arg(item->path()));
+            }
+        } else {
+            QMessageBox::warning(this, "Ошибка",
+                QString("Файл не существует:\n%1").arg(item->path()));
+        }
+    } else {
+        // Если это директория - открываем ее в проводнике
+        QUrl dirUrl = QUrl::fromLocalFile(item->path());
+        if (!QDesktopServices::openUrl(dirUrl)) {
+            QMessageBox::warning(this, "Ошибка",
+                QString("Не удалось открыть директорию:\n%1").arg(item->path()));
+        }
+    }
 }
